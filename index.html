@@ -7,12 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0a2536">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -118,21 +112,6 @@ $("#create").onclick = async () => {
   remember();
   $("#createMsg").innerHTML = `Game <b class="num">${code}</b> is live. Read that out to everyone.`;
 };
-</script>
-<script>
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").then(reg => {
-    reg.update();                                   // check for a new worker every launch
-    reg.addEventListener("updatefound", () => {
-      const w = reg.installing;
-      w && w.addEventListener("statechange", () => {
-        // A new worker took over an already-loaded page: reload once so the
-        // page and its modules come from the same version.
-        if (w.state === "activated" && navigator.serviceWorker.controller) location.reload();
-      });
-    });
-  }).catch(() => {});
-}
 </script>
 <script type="module">
 import { renderFooter } from "./js/footer.js?v=5";
