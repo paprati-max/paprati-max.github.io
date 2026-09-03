@@ -1,0 +1,203 @@
+/* Admiralty-chart palette: deep survey blue, limestone buff, harbour-light
+   amber, hazard red. Built for a phone held in a moving car — big targets,
+   heavy weights, tabular figures on anything that counts down. */
+
+:root {
+  --sea:      #0a2536;
+  --sea-deep: #061a27;
+  --panel:    #10334a;
+  --panel-2:  #16425c;
+  --stone:    #e6d9b8;
+  --ink:      #f4efe2;
+  --ink-dim:  #9fb6c6;
+  --lamp:     #f0b429;
+  --hazard:   #d6363b;
+  --live:     #7fd1c1;
+  --rule:     rgba(230, 217, 184, 0.18);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--sea-deep);
+  color: var(--ink);
+  font-family: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 17px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+h1, h2, h3, .cond {
+  font-family: "Barlow Condensed", "Barlow", system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin: 0;
+}
+
+h1 { font-size: 2.1rem; line-height: 1.05; }
+h2 { font-size: 1.4rem; }
+
+.num { font-variant-numeric: tabular-nums; }
+
+a { color: var(--lamp); }
+
+.wrap {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.1rem 3rem;
+}
+
+/* Masthead: a thin chart border and the game code sitting in it */
+.bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 1.1rem;
+  background: var(--sea);
+  border-bottom: 1px solid var(--rule);
+}
+.bar .mark {
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  font-size: 1.25rem;
+  color: var(--stone);
+}
+.bar .meta {
+  font-size: 0.9rem;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+.bar .meta b { color: var(--lamp); font-weight: 600; }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 1rem 1.05rem;
+  margin: 0.85rem 0;
+}
+
+.lead { color: var(--ink-dim); margin: 0.4rem 0 1.2rem; }
+
+label { display: block; margin: 0.9rem 0 0.3rem; color: var(--ink-dim); font-size: 0.95rem; }
+
+input[type="text"], input[type="number"], select {
+  width: 100%;
+  padding: 0.8rem 0.85rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--sea-deep);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+}
+input[type="text"] { text-transform: none; }
+input.code { text-transform: uppercase; letter-spacing: 0.35em; font-size: 1.6rem; text-align: center; font-family: "Barlow Condensed", sans-serif; }
+
+button {
+  font: inherit;
+  font-family: "Barlow Condensed", "Barlow", sans-serif;
+  font-weight: 600;
+  font-size: 1.15rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  margin-top: 0.7rem;
+  color: var(--sea-deep);
+  background: var(--lamp);
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--rule); }
+button.danger { background: var(--hazard); color: #fff; }
+button:disabled { opacity: 0.35; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid var(--live);
+  outline-offset: 2px;
+}
+
+.row { display: flex; gap: 0.6rem; }
+.row > * { flex: 1; }
+
+.tally {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.tally .big {
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  font-size: 3.4rem;
+  line-height: 0.9;
+  color: var(--lamp);
+  font-variant-numeric: tabular-nums;
+}
+.tally .unit { color: var(--ink-dim); font-size: 0.95rem; }
+
+/* Challenge list */
+.task {
+  border-top: 1px solid var(--rule);
+  padding: 0.95rem 0;
+}
+.task:first-child { border-top: 0; }
+.task h3 { font-size: 1.25rem; }
+.task p { margin: 0.25rem 0 0.6rem; color: var(--ink-dim); }
+.task.done { opacity: 0.4; }
+.task.done h3::after {
+  content: " — banked";
+  color: var(--live);
+  font-weight: 400;
+  font-size: 0.9rem;
+}
+
+.hint { font-size: 0.9rem; color: var(--ink-dim); }
+.warn { color: var(--lamp); }
+.bad  { color: var(--hazard); }
+
+/* Map screen */
+.mapstage { position: relative; height: 62vh; min-height: 320px; background: var(--sea-deep); }
+#map { position: absolute; inset: 0; background: var(--sea-deep); }
+.shutter {
+  position: absolute;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 0.4rem;
+  padding: 1.5rem;
+  background: var(--sea-deep);
+}
+.shutter.hidden { display: none; }
+.shutter p { color: var(--ink-dim); max-width: 24rem; margin: 0; }
+
+.budget {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.75rem 1.1rem;
+  background: var(--sea);
+  border-bottom: 1px solid var(--rule);
+}
+.budget .clock {
+  font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700;
+  font-size: 2.6rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--lamp);
+}
+.budget .clock.low { color: var(--hazard); }
+.budget .lbl { color: var(--ink-dim); font-size: 0.9rem; text-align: right; }
+
+.leaflet-container { background: var(--sea-deep) !important; }
+.leaflet-control-attribution { font-size: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

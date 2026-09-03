@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Hostage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div class="bar">
+  <span class="mark">Hostage</span>
+  <span class="meta">Team <b id="teamLbl">–</b> · <b id="codeLbl">····</b></span>
+</div>
+
+<div class="wrap">
+
+  <div class="card" id="lockCard">
+    <h2>Mark where you were dropped</h2>
+    <p class="lead">Do this once, standing where you've been left. It's the only thing keeping your square on the map — every challenge you finish erases squares around it, never yours.</p>
+    <button id="lock">Share my location</button>
+    <p class="hint" id="lockMsg"></p>
+  </div>
+
+  <div class="card" id="statusCard" hidden>
+    <div class="tally">
+      <span class="big num" id="left">–</span>
+      <span class="unit">squares your team can still search<br>out of <span id="total" class="num">–</span> to start with</span>
+    </div>
+    <p class="hint" id="statusMsg" style="margin-top:.9rem"></p>
+  </div>
+
+  <div class="card" id="taskCard" hidden>
+    <h2>Challenges</h2>
+    <p class="hint">Each one you bank wipes a slice off their map. Nothing wipes the square you're standing in.</p>
+    <div id="tasks"></div>
+  </div>
+
+  <div class="card" id="meetCard" hidden>
+    <h2>Everyone found</h2>
+    <p class="lead" id="meetText"></p>
+    <a id="meetLink" href="#"><button>Open the meeting point</button></a>
+  </div>
+
+</div>
+
+<script type="module">
+import { CHALLENGES } from "./js/challenges.js";
+import { cellIdFor, landCellIds } from "./js/grid.js";
+import { playerId, watchGame, lockLocation, completeChallenge, resolveMeetingPoint, DEFAULTS } from "./js/db.js";
+
+const $ = s => document.querySelector(s);
+const q = new URLSearchParams(location.search);
+const code = (q.get("code") || "").toUpperCase();
+const team = q.get("team") === "B" ? "B" : "A";
+const me = playerId();
+const myName = localStorage.getItem("mh.name") || "Hostage";
+
+if (!code) location.href = "index.html";
+$("#codeLbl").textContent = code;
+$("#teamLbl").textContent = team;
+
+const LAND = landCellIds();
+$("#total").textContent = LAND.length;
+
+let config = { ...DEFAULTS };
+let myCell = null;
+let done = {};
+
+// ---- location -------------------------------------------------------------
+$("#lock").onclick = () => {
+  if (!navigator.geolocation) { $("#lockMsg").innerHTML = `<span class="bad">This browser won't share a location.</span>`; return; }
+  $("#lockMsg").textContent = "Getting a fix…";
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const { latitude: lat, longitude: lng } = pos.coords;
+    const cell = cellIdFor(lat, lng);
+    if (!cell || !LAND.includes(cell)) {
+      $("#lockMsg").innerHTML = `<span class="bad">That's outside the board. The game only covers the main island — if you're really on it, widen MALTA_OUTLINE in js/grid.js.</span>`;
+      return;
+    }
+    myCell = cell;
+    await lockLocation(code, team, me, myName, lat, lng, cell);
+    $("#lockMsg").innerHTML = `Locked in. Accurate to about ${Math.round(pos.coords.accuracy)} m.`;
+    $("#lock").textContent = "Re-share my location";
+  }, err => {
+    $("#lockMsg").innerHTML = `<span class="bad">Location refused (${err.message}). The page has to be on https, and location has to be on in your phone settings.</span>`;
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+};
+
+// ---- challenges -----------------------------------------------------------
+const nodes = new Map();
+
+function render() {
+  const box = $("#tasks");
+  if (box.childElementCount) return; // built once — a live hold timer must survive updates
+  for (const c of CHALLENGES) {
+    const el = document.createElement("div");
+    el.className = "task";
+    nodes.set(c.id, el);
+    const h = document.createElement("h3"); h.textContent = c.title;
+    const p = document.createElement("p"); p.textContent = c.text;
+    el.append(h, p);
+
+    {
+      const msg = document.createElement("p");
+      msg.className = "hint";
+
+      if (c.hold) {
+        const btn = document.createElement("button");
+        btn.className = "ghost";
+        btn.textContent = `Start (${c.hold}s)`;
+        btn.onclick = () => {
+          let t = c.hold;
+          btn.disabled = true;
+          const tick = setInterval(() => {
+            t--;
+            btn.textContent = `${t}s`;
+            if (t <= 0) {
+              clearInterval(tick);
+              btn.disabled = false;
+              btn.className = "";
+              btn.textContent = "Bank it";
+              btn.onclick = () => bank(c, btn, msg);
+            }
+          }, 1000);
+        };
+        el.append(btn, msg);
+      } else if (c.answer !== undefined) {
+        const inp = document.createElement("input");
+        inp.type = "text"; inp.placeholder = "Your answer";
+        const btn = document.createElement("button");
+        btn.textContent = "Bank it";
+        btn.onclick = () => {
+          const given = inp.value.trim().toLowerCase().replace(/\s+/g, " ");
+          if (!given) { msg.textContent = "Type something first."; return; }
+          if (c.answer && given !== String(c.answer).toLowerCase()) {
+            msg.innerHTML = `<span class="bad">Not it. Try again.</span>`; return;
+          }
+          bank(c, btn, msg);
+        };
+        el.append(inp, btn, msg);
+      } else {
+        const btn = document.createElement("button");
+        btn.textContent = "Bank it";
+        btn.onclick = () => bank(c, btn, msg);
+        el.append(btn, msg);
+      }
+    }
+    box.append(el);
+  }
+}
+
+// Applied on every update instead of a full rebuild.
+function syncDone() {
+  for (const [id, el] of nodes) {
+    const banked = !!done[id];
+    el.classList.toggle("done", banked);
+    if (banked) el.querySelectorAll("button, input").forEach(n => { n.disabled = true; });
+  }
+}
+
+async function bank(c, btn, msg) {
+  if (!myCell) { msg.innerHTML = `<span class="bad">Share your location first.</span>`; return; }
+  btn.disabled = true;
+  msg.textContent = "Banking…";
+  const r = await completeChallenge(code, team, c.id, config);
+  msg.textContent = r.ok ? `Wiped ${r.removed} squares.` : "Already counted.";
+}
+
+// ---- live state -----------------------------------------------------------
+watchGame(code, g => {
+  if (!g) return;
+  config = { ...DEFAULTS, ...(g.config || {}) };
+  const t = (g.teams || {})[team] || {};
+  done = t.completed || {};
+
+  const mine = (t.hostages || {})[me];
+  if (mine?.cell) {
+    myCell = mine.cell;
+    $("#statusCard").hidden = false;
+    $("#taskCard").hidden = false;
+  }
+
+  const wiped = Object.keys(t.eliminated || {}).length;
+  const left = LAND.length - wiped;
+  $("#left").textContent = left;
+
+  const banked = Object.keys(done).length;
+  const others = Object.values(t.hostages || {}).filter(h => h.name && h.lockedAt);
+  $("#statusMsg").textContent =
+    `${banked} of ${CHALLENGES.length} challenges banked. ${others.length} of your team marked in.`;
+
+  render();
+  syncDone();
+
+  if (g.teams?.A?.found && g.teams?.B?.found) resolveMeetingPoint(code).catch(() => {});
+  if (g.meetingPoint) {
+    const { lat, lng } = g.meetingPoint;
+    $("#meetCard").hidden = false;
+    $("#meetText").textContent = "Both teams are back together. Head here — this is the halfway point between the two drop-offs.";
+    $("#meetLink").href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  }
+});
+</script>
+</body>
+</html>

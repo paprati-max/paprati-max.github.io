@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chart Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div class="bar">
+  <span class="mark">Chart Room</span>
+  <span class="meta">Malta · main island only</span>
+</div>
+
+<div class="wrap">
+  <h1>Two cars, four hostages,<br>one island.</h1>
+  <p class="lead">Everyone joins with the same four-letter code. Hostages set off challenges that erase the map; the passenger gets a few seconds at a time to look at what's left.</p>
+
+  <div class="card">
+    <h2>Join a game</h2>
+    <label for="code">Game code</label>
+    <input id="code" class="code" type="text" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="····">
+
+    <label for="team">Your team</label>
+    <select id="team">
+      <option value="A">Team A</option>
+      <option value="B">Team B</option>
+    </select>
+
+    <label for="name">Your name</label>
+    <input id="name" type="text" autocomplete="off" placeholder="Matt">
+
+    <div class="row">
+      <button id="goHostage">I'm a hostage</button>
+      <button id="goSeeker" class="ghost">I'm in the car</button>
+    </div>
+    <p class="hint" id="joinMsg"></p>
+    <p class="hint">Join the team you belong to, not the one holding you. Your team's hostages narrow your team's map.</p>
+  </div>
+
+  <div class="card">
+    <h2>Start a new game</h2>
+    <p class="hint">One person does this, then reads the code out to everyone else.</p>
+
+    <label for="viewSeconds">Map seconds per team</label>
+    <input id="viewSeconds" type="number" min="30" max="900" step="10" value="180">
+
+    <label for="elimPercent">Map erased per challenge (%)</label>
+    <input id="elimPercent" type="number" min="5" max="50" step="1" value="20">
+
+    <button id="create" class="ghost">Create game</button>
+    <p class="hint" id="createMsg"></p>
+  </div>
+</div>
+
+<script type="module">
+import { newCode, createGame, gameExists } from "./js/db.js";
+
+const $ = s => document.querySelector(s);
+const codeIn = $("#code"), teamIn = $("#team"), nameIn = $("#name");
+
+codeIn.value = localStorage.getItem("mh.code") || "";
+teamIn.value = localStorage.getItem("mh.team") || "A";
+nameIn.value = localStorage.getItem("mh.name") || "";
+
+function remember() {
+  localStorage.setItem("mh.code", codeIn.value.trim().toUpperCase());
+  localStorage.setItem("mh.team", teamIn.value);
+  localStorage.setItem("mh.name", nameIn.value.trim());
+}
+
+async function go(page) {
+  const code = codeIn.value.trim().toUpperCase();
+  if (code.length !== 4) { $("#joinMsg").textContent = "A game code is four letters."; return; }
+  $("#joinMsg").textContent = "Checking…";
+  try {
+    if (!await gameExists(code)) { $("#joinMsg").textContent = `No game called ${code}. Check the code or start a new game below.`; return; }
+  } catch (e) {
+    $("#joinMsg").innerHTML = `<span class="bad">Can't reach the database. Check js/firebase-config.js.</span>`;
+    return;
+  }
+  remember();
+  location.href = `${page}?code=${code}&team=${teamIn.value}`;
+}
+
+$("#goHostage").onclick = () => go("hostage.html");
+$("#goSeeker").onclick = () => go("seeker.html");
+
+$("#create").onclick = async () => {
+  const code = newCode();
+  $("#createMsg").textContent = "Creating…";
+  try {
+    await createGame(code, {
+      viewSeconds: Number($("#viewSeconds").value) || 180,
+      elimPercent: (Number($("#elimPercent").value) || 20) / 100
+    });
+  } catch (e) {
+    $("#createMsg").innerHTML = `<span class="bad">Couldn't create it: ${e.message}</span>`;
+    return;
+  }
+  codeIn.value = code;
+  remember();
+  $("#createMsg").innerHTML = `Game <b class="num">${code}</b> is live. Read that out to everyone.`;
+};
+</script>
+</body>
+</html>

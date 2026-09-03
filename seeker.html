@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Search area</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div class="bar">
+  <span class="mark">Search area</span>
+  <span class="meta">Team <b id="teamLbl">–</b> · <b id="codeLbl">····</b></span>
+</div>
+
+<div class="budget">
+  <div>
+    <div class="clock num" id="clock">–:–</div>
+  </div>
+  <div class="lbl">map time left<br><span id="cellCount" class="num">–</span> squares live</div>
+</div>
+
+<div class="mapstage">
+  <div id="map"></div>
+  <div class="shutter" id="shutter">
+    <h2 id="shutterTitle">Map is closed</h2>
+    <p id="shutterText">The clock only runs while this is open. Close it the second you've seen enough.</p>
+  </div>
+</div>
+
+<div class="wrap">
+  <button id="toggle">Open the map</button>
+  <button id="found" class="ghost">We've got our hostages</button>
+  <p class="hint" id="msg"></p>
+
+  <div class="card" id="meetCard" hidden>
+    <h2>Meeting point</h2>
+    <p class="lead" id="meetText"></p>
+    <a id="meetLink" href="#"><button>Open in Maps</button></a>
+  </div>
+
+  <p class="hint">This screen never asks where you are, and never will. That's the whole point.</p>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+import { buildGrid, landCellIds, MALTA_BOUNDS } from "./js/grid.js";
+import { watchGame, setViewLeft, markFound, resolveMeetingPoint, DEFAULTS } from "./js/db.js";
+
+const $ = s => document.querySelector(s);
+const q = new URLSearchParams(location.search);
+const code = (q.get("code") || "").toUpperCase();
+const team = q.get("team") === "B" ? "B" : "A";
+if (!code) location.href = "index.html";
+$("#codeLbl").textContent = code;
+$("#teamLbl").textContent = team;
+
+const CELLS = buildGrid();
+const LAND = landCellIds();
+
+// ---- map ------------------------------------------------------------------
+// Standard road tiles, not satellite: place names and road shapes are what you
+// actually navigate by from a moving car. Zoom is capped so nobody can read
+// house numbers off it.
+const bounds = L.latLngBounds(
+  [MALTA_BOUNDS.south, MALTA_BOUNDS.west],
+  [MALTA_BOUNDS.north, MALTA_BOUNDS.east]
+);
+const map = L.map("map", {
+  zoomControl: true,
+  attributionControl: true,
+  minZoom: 11,
+  maxZoom: 15,
+  maxBounds: bounds.pad(0.08),
+  maxBoundsViscosity: 1
+});
+map.fitBounds(bounds);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: "&copy; OpenStreetMap"
+}).addTo(map);
+
+// One rectangle per cell. Sea is blacked out from the start; land goes black
+// as challenges land. What stays clear is the search area.
+const mask = L.layerGroup().addTo(map);
+const rects = new Map();
+for (const c of CELLS) {
+  const r = L.rectangle([[c.south, c.west], [c.north, c.east]], {
+    stroke: false,
+    fillColor: "#061a27",
+    fillOpacity: c.land ? 0 : 1,
+    interactive: false
+  }).addTo(mask);
+  rects.set(c.id, r);
+}
+// A thin amber keyline so the live area reads as a shape, not just a gap.
+const outline = L.layerGroup().addTo(map);
+
+function paint(eliminated) {
+  for (const c of CELLS) {
+    const dead = !c.land || eliminated[c.id];
+    rects.get(c.id).setStyle({ fillOpacity: dead ? 1 : 0 });
+  }
+  outline.clearLayers();
+  for (const c of CELLS) {
+    if (c.land && !eliminated[c.id]) {
+      L.rectangle([[c.south, c.west], [c.north, c.east]], {
+        color: "#f0b429", weight: 1, opacity: 0.55, fill: false, interactive: false
+      }).addTo(outline);
+    }
+  }
+}
+
+// ---- the clock ------------------------------------------------------------
+let left = null;         // seconds, authoritative value from the database
+let open = false;
+let lastPush = 0;
+
+function fmt(s) {
+  s = Math.max(0, Math.round(s));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function paintClock() {
+  $("#clock").textContent = left === null ? "–:–" : fmt(left);
+  $("#clock").classList.toggle("low", left !== null && left <= 20);
+  $("#toggle").textContent = open ? "Close the map" : "Open the map";
+  $("#toggle").disabled = left !== null && left <= 0 && !open;
+}
+
+function openMap() {
+  if (left === null || left <= 0) return;
+  open = true;
+  $("#shutter").classList.add("hidden");
+  setTimeout(() => map.invalidateSize(), 60);
+  paintClock();
+}
+
+function closeMap(reason) {
+  if (!open) return;
+  open = false;
+  $("#shutter").classList.remove("hidden");
+  if (left !== null) setViewLeft(code, team, left).catch(() => {});
+  if (reason === "spent") {
+    $("#shutterTitle").textContent = "Out of map time";
+    $("#shutterText").textContent = "That's all of it. From here you're on memory and whatever the hostages tell you.";
+    $("#toggle").disabled = true;
+  }
+  paintClock();
+}
+
+$("#toggle").onclick = () => (open ? closeMap("manual") : openMap());
+
+// A phone that gets locked or switched away mid-look would otherwise burn the
+// budget in the background — or worse, keep the map open for free.
+document.addEventListener("visibilitychange", () => { if (document.hidden) closeMap("hidden"); });
+window.addEventListener("pagehide", () => closeMap("hidden"));
+
+setInterval(() => {
+  if (!open || left === null) return;
+  left -= 1;
+  if (left <= 0) { left = 0; closeMap("spent"); }
+  paintClock();
+  const now = Date.now();
+  if (now - lastPush > 2000) { lastPush = now; setViewLeft(code, team, left).catch(() => {}); }
+}, 1000);
+
+// ---- live state -----------------------------------------------------------
+let seeded = false;
+let meetMarker = null;
+
+watchGame(code, g => {
+  if (!g) return;
+  const cfg = { ...DEFAULTS, ...(g.config || {}) };
+  const t = (g.teams || {})[team] || {};
+
+  // Take the stored budget once at load, and again any time we're not spending
+  // it, so a second device can't double-dip.
+  const stored = t.viewLeft ?? cfg.viewSeconds;
+  if (!seeded) { left = stored; seeded = true; }
+  else if (!open) left = Math.min(left ?? stored, stored);
+  if (left !== null && left <= 0 && !open) {
+    $("#toggle").disabled = true;
+    $("#shutterTitle").textContent = "Out of map time";
+  }
+  paintClock();
+
+  const eliminated = t.eliminated || {};
+  paint(eliminated);
+  $("#cellCount").textContent = LAND.length - Object.keys(eliminated).length;
+
+  if (g.teams?.A?.found && g.teams?.B?.found) resolveMeetingPoint(code).catch(() => {});
+  if (g.meetingPoint && !meetMarker) {
+    const { lat, lng } = g.meetingPoint;
+    $("#meetCard").hidden = false;
+    $("#meetText").textContent = "Halfway between the two drop-offs. Everyone heads here.";
+    $("#meetLink").href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    meetMarker = L.circleMarker([lat, lng], { radius: 9, color: "#d6363b", weight: 3, fillOpacity: 0.9 })
+      .addTo(map).bindTooltip("Meet here");
+  }
+});
+
+$("#found").onclick = async () => {
+  await markFound(code, team);
+  $("#msg").textContent = "Logged. The meeting point appears once the other car has theirs too.";
+  $("#found").disabled = true;
+};
+
+paintClock();
+</script>
+</body>
+</html>
