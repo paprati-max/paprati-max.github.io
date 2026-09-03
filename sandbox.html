@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sandbox</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div class="bar">
+  <span class="mark">Sandbox</span>
+  <span class="meta">no database · nothing saved</span>
+</div>
+
+<div class="budget">
+  <div><div class="clock num" id="count">–</div></div>
+  <div class="lbl">squares live<br><span id="banked" class="num">0</span> challenges banked</div>
+</div>
+
+<div class="mapstage" style="height:58vh">
+  <div id="map"></div>
+</div>
+
+<div class="wrap">
+  <p class="hint" id="msg">Tap anywhere on the island to drop a pretend hostage, then bank challenges and watch it close in.</p>
+
+  <button id="step" disabled>Bank a challenge</button>
+  <div class="row">
+    <button id="step5" class="ghost" disabled>Bank five</button>
+    <button id="reset" class="ghost">Reset</button>
+  </div>
+
+  <div class="card">
+    <h2>Settings</h2>
+    <label for="pct">Erased per challenge (%)</label>
+    <input id="pct" type="number" min="5" max="50" step="1" value="20">
+    <label for="mode">How squares are chosen</label>
+    <select id="mode">
+      <option value="drift">Drift — closes in on the hostage</option>
+      <option value="scatter">Scatter — uniform random</option>
+    </select>
+    <p class="hint">The red dot is the hostage. It's shown here only because this is a test page — the real seeker map never draws it.</p>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script type="module">
+import { buildGrid, landCellIds, cellIdFor, MALTA_BOUNDS } from "./js/grid.js";
+import { chooseEliminations } from "./js/elim.js";
+
+const $ = s => document.querySelector(s);
+const CELLS = buildGrid();
+const LAND = landCellIds();
+
+const bounds = L.latLngBounds([MALTA_BOUNDS.south, MALTA_BOUNDS.west],
+                              [MALTA_BOUNDS.north, MALTA_BOUNDS.east]);
+const map = L.map("map", { minZoom: 10, maxZoom: 15, maxBounds: bounds.pad(0.1) });
+map.fitBounds(bounds);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(map);
+
+const mask = L.layerGroup().addTo(map);
+const outline = L.layerGroup().addTo(map);
+const rects = new Map();
+for (const c of CELLS) {
+  const r = L.rectangle([[c.south, c.west], [c.north, c.east]], {
+    stroke: false, fillColor: "#061a27", fillOpacity: c.land ? 0 : 1, interactive: false
+  }).addTo(mask);
+  rects.set(c.id, r);
+}
+
+let eliminated = {};
+let safeCell = null;
+let marker = null;
+let banked = 0;
+
+function paint() {
+  for (const c of CELLS) {
+    rects.get(c.id).setStyle({ fillOpacity: (!c.land || eliminated[c.id]) ? 1 : 0 });
+  }
+  outline.clearLayers();
+  for (const c of CELLS) {
+    if (c.land && !eliminated[c.id]) {
+      L.rectangle([[c.south, c.west], [c.north, c.east]], {
+        color: "#f0b429", weight: 1, opacity: 0.55, fill: false, interactive: false
+      }).addTo(outline);
+    }
+  }
+  $("#count").textContent = LAND.length - Object.keys(eliminated).length;
+  $("#banked").textContent = banked;
+}
+
+map.on("click", e => {
+  const cell = cellIdFor(e.latlng.lat, e.latlng.lng);
+  if (!cell || !LAND.includes(cell)) { $("#msg").innerHTML = `<span class="bad">That square is sea — it's off the board.</span>`; return; }
+  safeCell = cell;
+  if (marker) marker.remove();
+  marker = L.circleMarker(e.latlng, { radius: 7, color: "#d6363b", weight: 3, fillOpacity: 0.9 }).addTo(map);
+  $("#step").disabled = false;
+  $("#step5").disabled = false;
+  $("#msg").textContent = `Hostage in square ${cell}. That one can never be wiped.`;
+});
+
+function step() {
+  if (!safeCell) return;
+  const kill = chooseEliminations({
+    land: LAND,
+    eliminated,
+    safeCells: [safeCell],
+    config: {
+      elimPercent: (Number($("#pct").value) || 20) / 100,
+      elimMode: $("#mode").value
+    }
+  });
+  if (!kill.length) { $("#msg").textContent = "Can't shrink any further."; return; }
+  for (const id of kill) eliminated[id] = true;
+  banked++;
+  paint();
+  $("#msg").textContent = `Wiped ${kill.length}. ${LAND.length - Object.keys(eliminated).length} squares left.`;
+}
+
+$("#step").onclick = step;
+$("#step5").onclick = () => { for (let i = 0; i < 5; i++) step(); };
+$("#reset").onclick = () => {
+  eliminated = {}; banked = 0; safeCell = null;
+  if (marker) { marker.remove(); marker = null; }
+  $("#step").disabled = true; $("#step5").disabled = true;
+  $("#msg").textContent = "Tap anywhere on the island to drop a pretend hostage.";
+  paint();
+};
+
+paint();
+</script>
+</body>
+</html>

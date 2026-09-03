@@ -24,6 +24,12 @@
 
 <div class="wrap">
 
+  <div class="card" id="testCard" hidden style="border-color:var(--lamp)">
+    <h2 style="color:var(--lamp)">Test mode</h2>
+    <p class="hint" id="testWhat"></p>
+    <button id="spoof" class="ghost">Pretend I'm in Siġġiewi</button>
+  </div>
+
   <div class="card" id="lockCard">
     <h2>Mark where you were dropped</h2>
     <p class="lead">Do this once, standing where you've been left. It's the only thing keeping your square on the map — every challenge you finish erases squares around it, never yours.</p>
@@ -65,6 +71,22 @@ const team = q.get("team") === "B" ? "B" : "A";
 const me = playerId();
 const myName = localStorage.getItem("mh.name") || "Hostage";
 
+// ---- test mode ------------------------------------------------------------
+// ?fast=1   every hold timer becomes 2 seconds
+// ?spoof=1  lock a pretend location without touching GPS
+// Both together: ?code=ABCD&team=A&fast=1&spoof=1
+const FAST = q.get("fast") === "1";
+const SPOOF = q.get("spoof") === "1";
+const SPOOF_AT = { lat: 35.855, lng: 14.437 }; // Siġġiewi, middle of the island
+
+if (FAST || SPOOF) {
+  $("#testCard").hidden = false;
+  $("#testWhat").textContent =
+    [FAST && "Hold timers cut to 2 seconds.", SPOOF && "You can fake a location."]
+      .filter(Boolean).join(" ");
+  $("#spoof").hidden = !SPOOF;
+}
+
 if (!code) location.href = "index.html";
 $("#codeLbl").textContent = code;
 $("#teamLbl").textContent = team;
@@ -77,27 +99,41 @@ let myCell = null;
 let done = {};
 
 // ---- location -------------------------------------------------------------
+async function applyLock(lat, lng, note) {
+  const cell = cellIdFor(lat, lng);
+  if (!cell || !LAND.includes(cell)) {
+    $("#lockMsg").innerHTML = `<span class="bad">That's outside the board. The game only covers the main island — if you're really on it, widen MALTA_OUTLINE in js/grid.js.</span>`;
+    return;
+  }
+  try {
+    await lockLocation(code, team, me, myName, lat, lng, cell);
+    myCell = cell;
+    $("#lockMsg").innerHTML = `Locked into square ${cell}. ${note}`;
+    $("#lock").textContent = "Re-share my location";
+  } catch (e) {
+    $("#lockMsg").innerHTML = `<span class="bad">Couldn't save it: ${e.code || ""} ${e.message}</span>`;
+  }
+}
+
 $("#lock").onclick = () => {
   if (!navigator.geolocation) { $("#lockMsg").innerHTML = `<span class="bad">This browser won't share a location.</span>`; return; }
   $("#lockMsg").textContent = "Getting a fix…";
-  navigator.geolocation.getCurrentPosition(async pos => {
-    const { latitude: lat, longitude: lng } = pos.coords;
-    const cell = cellIdFor(lat, lng);
-    if (!cell || !LAND.includes(cell)) {
-      $("#lockMsg").innerHTML = `<span class="bad">That's outside the board. The game only covers the main island — if you're really on it, widen MALTA_OUTLINE in js/grid.js.</span>`;
-      return;
-    }
-    myCell = cell;
-    await lockLocation(code, team, me, myName, lat, lng, cell);
-    $("#lockMsg").innerHTML = `Locked in. Accurate to about ${Math.round(pos.coords.accuracy)} m.`;
-    $("#lock").textContent = "Re-share my location";
-  }, err => {
-    $("#lockMsg").innerHTML = `<span class="bad">Location refused (${err.message}). The page has to be on https, and location has to be on in your phone settings.</span>`;
-  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  navigator.geolocation.getCurrentPosition(
+    pos => applyLock(pos.coords.latitude, pos.coords.longitude, `Accurate to about ${Math.round(pos.coords.accuracy)} m.`),
+    err => {
+      $("#lockMsg").innerHTML = `<span class="bad">Location refused (${err.message}). The page has to be on https, and location has to be on in your phone settings.</span>`;
+    },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+};
+
+$("#spoof").onclick = () => {
+  $("#lockMsg").textContent = "Faking a location…";
+  applyLock(SPOOF_AT.lat, SPOOF_AT.lng, "Pretend location — test mode only.");
 };
 
 // ---- challenges -----------------------------------------------------------
 const nodes = new Map();
+const holdOf = c => (FAST && c.hold ? 2 : c.hold);
 
 function render() {
   const box = $("#tasks");
@@ -110,50 +146,49 @@ function render() {
     const p = document.createElement("p"); p.textContent = c.text;
     el.append(h, p);
 
-    {
-      const msg = document.createElement("p");
-      msg.className = "hint";
+    const msg = document.createElement("p");
+    msg.className = "hint";
+    const hold = holdOf(c);
 
-      if (c.hold) {
-        const btn = document.createElement("button");
-        btn.className = "ghost";
-        btn.textContent = `Start (${c.hold}s)`;
-        btn.onclick = () => {
-          let t = c.hold;
-          btn.disabled = true;
-          const tick = setInterval(() => {
-            t--;
-            btn.textContent = `${t}s`;
-            if (t <= 0) {
-              clearInterval(tick);
-              btn.disabled = false;
-              btn.className = "";
-              btn.textContent = "Bank it";
-              btn.onclick = () => bank(c, btn, msg);
-            }
-          }, 1000);
-        };
-        el.append(btn, msg);
-      } else if (c.answer !== undefined) {
-        const inp = document.createElement("input");
-        inp.type = "text"; inp.placeholder = "Your answer";
-        const btn = document.createElement("button");
-        btn.textContent = "Bank it";
-        btn.onclick = () => {
-          const given = inp.value.trim().toLowerCase().replace(/\s+/g, " ");
-          if (!given) { msg.textContent = "Type something first."; return; }
-          if (c.answer && given !== String(c.answer).toLowerCase()) {
-            msg.innerHTML = `<span class="bad">Not it. Try again.</span>`; return;
+    if (hold) {
+      const btn = document.createElement("button");
+      btn.className = "ghost";
+      btn.textContent = `Start (${hold}s)`;
+      btn.onclick = () => {
+        let t = hold;
+        btn.disabled = true;
+        const tick = setInterval(() => {
+          t--;
+          btn.textContent = `${t}s`;
+          if (t <= 0) {
+            clearInterval(tick);
+            btn.disabled = false;
+            btn.className = "";
+            btn.textContent = "Bank it";
+            btn.onclick = () => bank(c, btn, msg);
           }
-          bank(c, btn, msg);
-        };
-        el.append(inp, btn, msg);
-      } else {
-        const btn = document.createElement("button");
-        btn.textContent = "Bank it";
-        btn.onclick = () => bank(c, btn, msg);
-        el.append(btn, msg);
-      }
+        }, 1000);
+      };
+      el.append(btn, msg);
+    } else if (c.answer !== undefined) {
+      const inp = document.createElement("input");
+      inp.type = "text"; inp.placeholder = "Your answer";
+      const btn = document.createElement("button");
+      btn.textContent = "Bank it";
+      btn.onclick = () => {
+        const given = inp.value.trim().toLowerCase().replace(/\s+/g, " ");
+        if (!given) { msg.textContent = "Type something first."; return; }
+        if (c.answer && given !== String(c.answer).toLowerCase()) {
+          msg.innerHTML = `<span class="bad">Not it. Try again.</span>`; return;
+        }
+        bank(c, btn, msg);
+      };
+      el.append(inp, btn, msg);
+    } else {
+      const btn = document.createElement("button");
+      btn.textContent = "Bank it";
+      btn.onclick = () => bank(c, btn, msg);
+      el.append(btn, msg);
     }
     box.append(el);
   }
@@ -172,8 +207,19 @@ async function bank(c, btn, msg) {
   if (!myCell) { msg.innerHTML = `<span class="bad">Share your location first.</span>`; return; }
   btn.disabled = true;
   msg.textContent = "Banking…";
-  const r = await completeChallenge(code, team, c.id, config);
-  msg.textContent = r.ok ? `Wiped ${r.removed} squares.` : "Already counted.";
+  try {
+    const r = await completeChallenge(code, team, c.id, config);
+    if (r.ok) {
+      msg.textContent = `Wiped ${r.removed} squares.`;
+    } else {
+      msg.innerHTML = `<span class="warn">Nothing happened — ${r.reason}.</span>`;
+      btn.disabled = false;
+    }
+  } catch (e) {
+    console.error("[chartroom] bank failed:", e);
+    msg.innerHTML = `<span class="bad">Failed: ${e.code || ""} ${e.message}</span>`;
+    btn.disabled = false;
+  }
 }
 
 // ---- live state -----------------------------------------------------------
@@ -191,8 +237,7 @@ watchGame(code, g => {
   }
 
   const wiped = Object.keys(t.eliminated || {}).length;
-  const left = LAND.length - wiped;
-  $("#left").textContent = left;
+  $("#left").textContent = LAND.length - wiped;
 
   const banked = Object.keys(done).length;
   const others = Object.values(t.hostages || {}).filter(h => h.name && h.lockedAt);

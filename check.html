@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Check</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/app.css">
+<style>
+  .step { border-top: 1px solid var(--rule); padding: .7rem 0; display: flex; gap: .7rem; align-items: baseline; }
+  .step:first-child { border-top: 0; }
+  .dot { width: 1.4rem; flex: none; font-weight: 700; }
+  .step .what { flex: 1; }
+  .step .detail { display: block; font-size: .85rem; color: var(--ink-dim); margin-top: .15rem; word-break: break-word; }
+  .pass .dot { color: var(--live); }
+  .fail .dot { color: var(--hazard); }
+  .run  .dot { color: var(--lamp); }
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <span class="mark">Check</span>
+  <span class="meta">Firebase diagnostics</span>
+</div>
+
+<div class="wrap">
+  <h1>Is the backend actually there?</h1>
+  <p class="lead">Runs the same calls the game makes, one at a time, against a throwaway game code. Whatever fails, fails here with a real error message instead of hanging.</p>
+
+  <button id="run">Run the checks</button>
+  <div class="card"><div id="steps"></div></div>
+  <p class="hint" id="verdict"></p>
+</div>
+
+<script type="module">
+const $ = s => document.querySelector(s);
+const box = $("#steps");
+
+function step(what) {
+  const el = document.createElement("div");
+  el.className = "step run";
+  el.innerHTML = `<span class="dot">•</span><span class="what">${what}<span class="detail"></span></span>`;
+  box.append(el);
+  return {
+    pass: d => { el.className = "step pass"; el.querySelector(".dot").textContent = "✓"; if (d) el.querySelector(".detail").textContent = d; },
+    fail: d => { el.className = "step fail"; el.querySelector(".dot").textContent = "✗"; el.querySelector(".detail").textContent = d; }
+  };
+}
+
+$("#run").onclick = async () => {
+  box.innerHTML = "";
+  $("#verdict").textContent = "";
+  $("#run").disabled = true;
+  let fatal = null;
+
+  const guard = async (label, fn) => {
+    const s = step(label);
+    try {
+      const out = await Promise.race([
+        fn(),
+        new Promise((_, r) => setTimeout(() => r(new Error("no reply in 12s — the database never answered")), 12000))
+      ]);
+      s.pass(typeof out === "string" ? out : undefined);
+      return out;
+    } catch (e) {
+      const code = e.code ? `${e.code} — ` : "";
+      s.fail(code + e.message);
+      fatal = fatal || label;
+      throw e;
+    }
+  };
+
+  const testCode = "ZZ" + Math.floor(Math.random() * 90 + 10);
+
+  try {
+    const cfgMod = await guard("Load your firebase-config.js", async () => {
+      const m = await import("./js/firebase-config.js");
+      const c = m.firebaseConfig;
+      if (!c) throw new Error("firebaseConfig is not exported");
+      if (String(c.apiKey).includes("PASTE")) throw new Error("still has the placeholder values in it");
+      if (!c.databaseURL) throw new Error("databaseURL is missing — the app cannot work without it");
+      return c.databaseURL;
+    });
+
+    const fb = await guard("Reach the Firebase SDK on the CDN", async () => {
+      const a = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+      const d = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js");
+      return "SDK loaded";
+    });
+
+    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
+    const { getDatabase, ref, set, get, update, runTransaction, remove } =
+      await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js");
+    const { firebaseConfig } = await import("./js/firebase-config.js");
+
+    const db = await guard("Connect to your database", async () => {
+      const app = initializeApp(firebaseConfig, "checker-" + Date.now());
+      return getDatabase(app);
+    });
+
+    const base = `games/${testCode}`;
+
+    await guard(`Write a test game (${testCode})`, () =>
+      set(ref(db, base), { config: { elimPercent: 0.2 }, startedAt: Date.now(),
+        teams: { A: { viewLeft: 180, found: false }, B: { viewLeft: 180, found: false } } }));
+
+    await guard("Read it back", async () => {
+      const s = await get(ref(db, base));
+      if (!s.exists()) throw new Error("wrote fine but read back nothing — check your read rules");
+      return "data came back";
+    });
+
+    await guard("Write a hostage location (same call the hostage page makes)", () =>
+      update(ref(db, `${base}/teams/A/hostages/checker`),
+        { name: "checker", lat: 35.9, lng: 14.45, cell: "8.9", lockedAt: Date.now() }));
+
+    await guard("Run a transaction (this is the one that hangs for you)", async () => {
+      const res = await runTransaction(ref(db, `${base}/teams/A`), t => {
+        if (!t) return t;
+        t.eliminated = t.eliminated || {};
+        t.eliminated["0.0"] = true;
+        t.completed = t.completed || {};
+        t.completed["checker"] = Date.now();
+        return t;
+      });
+      if (!res.committed) throw new Error("transaction aborted without committing");
+      return "committed";
+    });
+
+    await guard("Confirm the squares were actually wiped", async () => {
+      const s = await get(ref(db, `${base}/teams/A/eliminated`));
+      if (!s.exists()) throw new Error("transaction said it committed but nothing is there");
+      return Object.keys(s.val()).length + " square(s) recorded";
+    });
+
+    await guard("Clean up the test game", () => remove(ref(db, base)));
+
+    $("#verdict").innerHTML = `<span style="color:var(--live)">Everything passed. Your backend is fine — the hang is in the app code, and the updated db.js fixes it.</span>`;
+  } catch (e) {
+    $("#verdict").innerHTML = `<span class="bad">Stopped at: ${fatal}</span><br>
+      If it says <b>PERMISSION_DENIED</b>, your Realtime Database rules are blocking it — open Rules in the Firebase console and check what's actually published.<br>
+      If it says <b>no reply in 12s</b>, the database URL is wrong or unreachable.`;
+  }
+
+  $("#run").disabled = false;
+};
+</script>
+</body>
+</html>

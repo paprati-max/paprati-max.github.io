@@ -1,7 +1,7 @@
 // db.js — all shared state lives in one Firebase Realtime Database node per game.
 //
 // games/{code}
-//   config: { elimPercent, viewSeconds, minCells }
+//   config: { elimPercent, viewSeconds, minCells, elimMode }
 //   startedAt
 //   teams/{A|B}
 //     hostages/{playerId}: { name, lat, lng, cell, lockedAt }
@@ -17,47 +17,23 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import { firebaseConfig } from "./firebase-config.js";
 import { landCellIds, midpoint } from "./grid.js";
+import { chooseEliminations, DEFAULTS } from "./elim.js";
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-export const DEFAULTS = {
-  elimPercent: 0.20,  // share of still-live cells removed per challenge
-  viewSeconds: 180,   // total map time for each team's passenger
-  minCells: 3,        // never shrink below this many cells
-  elimMode: "drift"   // "drift" closes in on them; "scatter" removes at random
-};
+export { DEFAULTS };
+export { db };
 
-const rc = id => id.split(".").map(Number);
-
-function uniformPick(pool, n) {
-  const a = [...pool];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a.slice(0, n);
-}
-
-function driftPick(pool, safeCells, n) {
-  const anchors = safeCells.map(rc);
-  const weighted = pool.map(id => {
-    const [r, c] = rc(id);
-    const d = Math.min(...anchors.map(([ar, ac]) => Math.hypot(r - ar, c - ac)));
-    // Squared distance, plus a floor so nearby cells are unlikely, not immune.
-    return { id, w: Math.pow(d, 2) + 0.4 };
-  });
-  const out = [];
-  let total = weighted.reduce((s, x) => s + x.w, 0);
-  for (let k = 0; k < n && weighted.length; k++) {
-    let roll = Math.random() * total;
-    let i = 0;
-    while (i < weighted.length - 1 && (roll -= weighted[i].w) > 0) i++;
-    out.push(weighted[i].id);
-    total -= weighted[i].w;
-    weighted.splice(i, 1);
-  }
-  return out;
+// Every network call gets a deadline. Without one, a call that Firebase never
+// answers leaves the UI sitting on "Banking…" forever with nothing in the log.
+const TIMEOUT_MS = 12000;
+function deadline(promise, what) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) =>
+      setTimeout(() => rej(new Error(`${what} got no reply in ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS))
+  ]);
 }
 
 export function gameRef(code) { return ref(db, `games/${code}`); }
@@ -79,75 +55,75 @@ export function playerId() {
 
 export async function createGame(code, config = {}) {
   const cfg = { ...DEFAULTS, ...config };
-  await set(gameRef(code), {
+  await deadline(set(gameRef(code), {
     config: cfg,
     startedAt: Date.now(),
     teams: {
       A: { viewLeft: cfg.viewSeconds, found: false },
       B: { viewLeft: cfg.viewSeconds, found: false }
     }
-  });
+  }), "createGame");
   return cfg;
 }
 
 export async function gameExists(code) {
-  const snap = await get(gameRef(code));
+  const snap = await deadline(get(gameRef(code)), "gameExists");
   return snap.exists();
 }
 
 export function watchGame(code, cb) {
-  return onValue(gameRef(code), snap => cb(snap.val()));
+  return onValue(gameRef(code), snap => cb(snap.val()), err => {
+    console.error("[chartroom] watchGame failed:", err.code, err.message);
+  });
 }
 
 export function watchTeam(code, team, cb) {
-  return onValue(teamRef(code, team), snap => cb(snap.val()));
+  return onValue(teamRef(code, team), snap => cb(snap.val()), err => {
+    console.error("[chartroom] watchTeam failed:", err.code, err.message);
+  });
 }
 
 export async function lockLocation(code, team, id, name, lat, lng, cell) {
-  await update(ref(db, `games/${code}/teams/${team}/hostages/${id}`), {
+  await deadline(update(ref(db, `games/${code}/teams/${team}/hostages/${id}`), {
     name, lat, lng, cell, lockedAt: Date.now()
-  });
+  }), "lockLocation");
 }
 
-// Completing a challenge removes a slice of the remaining cells. The cells the
-// hostages are actually standing in are never removed, so the true location
+// Completing a challenge removes a slice of the remaining squares. The squares
+// the hostages are actually standing in are never removed, so the true location
 // always survives to the end.
+//
+// Throws on failure. Callers must catch, or the UI will hang.
 export async function completeChallenge(code, team, challengeId, config = {}) {
-  const cfg = { ...DEFAULTS, ...config };
   const land = landCellIds();
-  let outcome = { ok: false, removed: 0, left: land.length };
+  let outcome = { ok: false, reason: "unknown", removed: 0 };
 
-  await runTransaction(teamRef(code, team), t => {
-    if (!t) return t;
+  const res = await deadline(runTransaction(teamRef(code, team), t => {
+    if (!t) return t;                       // no local copy yet — retry against the server
     t.completed = t.completed || {};
-    if (t.completed[challengeId]) return; // abort — already banked
     t.eliminated = t.eliminated || {};
 
+    if (t.completed[challengeId]) {
+      outcome = { ok: false, reason: "already banked", removed: 0 };
+      return;                               // abort
+    }
+
     const hostages = Object.values(t.hostages || {});
-    if (!hostages.some(h => h.cell)) return; // abort — nobody has locked a location
+    const safeCells = hostages.map(h => h.cell).filter(Boolean);
+    if (!safeCells.length) {
+      outcome = { ok: false, reason: "nobody on this team has locked a location", removed: 0 };
+      return;                               // abort
+    }
 
-    const safe = new Set(hostages.map(h => h.cell).filter(Boolean));
-    const live = land.filter(c => !t.eliminated[c]);
-    const cuttable = live.filter(c => !safe.has(c));
-
-    const pct = cfg.elimPercent;
-    const floor = cfg.minCells;
-    let take = Math.max(1, Math.round(cuttable.length * pct));
-    take = Math.min(take, Math.max(0, live.length - Math.max(floor, safe.size)));
-
-    // Which cells go. "drift" weights removal by distance from the hostages, so
-    // the live area creeps inward without ever handing over an exact centre.
-    // "scatter" removes uniformly, leaving candidates spread across the island.
-    const pick = cfg.elimMode === "scatter"
-      ? uniformPick(cuttable, take)
-      : driftPick(cuttable, [...safe], take);
-    for (const id of pick) t.eliminated[id] = true;
-
+    const kill = chooseEliminations({ land, eliminated: t.eliminated, safeCells, config });
+    for (const id of kill) t.eliminated[id] = true;
     t.completed[challengeId] = Date.now();
-    outcome = { ok: true, removed: take, left: live.length - take };
-    return t;
-  });
 
+    outcome = { ok: true, reason: "", removed: kill.length };
+    return t;
+  }), "completeChallenge");
+
+  if (!res.committed && outcome.ok) outcome = { ok: false, reason: "not committed", removed: 0 };
   return outcome;
 }
 
@@ -158,7 +134,7 @@ export async function setViewLeft(code, team, seconds) {
 }
 
 export async function markFound(code, team) {
-  await update(teamRef(code, team), { found: true, foundAt: Date.now() });
+  await deadline(update(teamRef(code, team), { found: true, foundAt: Date.now() }), "markFound");
 }
 
 // Once both teams have their people back, work out where everyone meets:
