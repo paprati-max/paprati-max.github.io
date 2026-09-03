@@ -7,6 +7,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a2536">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
@@ -166,18 +172,8 @@ async function bank(c, btn, msg) {
   if (!myCell) { msg.innerHTML = `<span class="bad">Share your location first.</span>`; return; }
   btn.disabled = true;
   msg.textContent = "Banking…";
-  try {
-    const r = await Promise.race([
-      completeChallenge(code, team, c.id, config),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("no reply from the database")), 12000))
-    ]);
-    msg.textContent = r.ok
-      ? `Wiped ${r.removed} squares.`
-      : "Nothing happened — already counted, or nobody on your team has locked a location yet.";
-  } catch (e) {
-    msg.innerHTML = `<span class="bad">Failed: ${e.message}</span>`;
-    btn.disabled = false;
-  }
+  const r = await completeChallenge(code, team, c.id, config);
+  msg.textContent = r.ok ? `Wiped ${r.removed} squares.` : "Already counted.";
 }
 
 // ---- live state -----------------------------------------------------------
@@ -214,6 +210,11 @@ watchGame(code, g => {
     $("#meetLink").href = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
   }
 });
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
 </script>
 </body>
 </html>
