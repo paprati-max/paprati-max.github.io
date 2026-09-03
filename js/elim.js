@@ -11,7 +11,7 @@ export const DEFAULTS = {
   elimMode: "drift"   // "drift" closes in on them; "scatter" removes at random
 };
 
-const rc = id => id.split(".").map(Number);
+const rc = id => id.split("-").map(Number);  // see the note in grid.js about this separator
 
 function uniformPick(pool, n) {
   const a = [...pool];

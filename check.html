@@ -113,13 +113,13 @@ $("#run").onclick = async () => {
 
     await guard("Write a hostage location (same call the hostage page makes)", () =>
       update(ref(db, `${base}/teams/A/hostages/checker`),
-        { name: "checker", lat: 35.9, lng: 14.45, cell: "8.9", lockedAt: Date.now() }));
+        { name: "checker", lat: 35.9, lng: 14.45, cell: "8-9", lockedAt: Date.now() }));
 
     await guard("Run a transaction (this is the one that hangs for you)", async () => {
       const res = await runTransaction(ref(db, `${base}/teams/A`), t => {
         if (!t) return t;
         t.eliminated = t.eliminated || {};
-        t.eliminated["0.0"] = true;
+        t.eliminated["0-0"] = true;
         t.completed = t.completed || {};
         t.completed["checker"] = Date.now();
         return t;

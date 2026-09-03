@@ -5,6 +5,11 @@
 //
 // Every device builds this grid from the same constants, so cell IDs mean the
 // same thing on every phone. Change a constant and everyone must reload.
+//
+// Cell IDs are "row-col" and the separator MUST NOT be a dot. Cell IDs are used
+// directly as Firebase database keys, and Firebase rejects any key containing
+// . # $ / [ ] — it throws during internal validation rather than rejecting the
+// promise, so the calling code hangs forever with no catchable error.
 
 export const MALTA_BOUNDS = {
   south: 35.800,
@@ -79,7 +84,7 @@ export function buildGrid() {
         [south, west], [south, east], [north, west], [north, east]
       ];
       const land = probes.some(([la, ln]) => inside(la, ln, MALTA_OUTLINE));
-      cells.push({ id: `${r}.${c}`, row: r, col: c, south, west, north, east, land });
+      cells.push({ id: `${r}-${c}`, row: r, col: c, south, west, north, east, land });
     }
   }
   cache = cells;
@@ -94,7 +99,7 @@ export function cellIdFor(lat, lng) {
   const r = Math.floor((lat - MALTA_BOUNDS.south) / CELL_LAT);
   const c = Math.floor((lng - MALTA_BOUNDS.west) / CELL_LON);
   if (r < 0 || c < 0 || r >= ROWS || c >= COLS) return null;
-  return `${r}.${c}`;
+  return `${r}-${c}`;
 }
 
 export function cellById(id) {

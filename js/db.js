@@ -96,6 +96,14 @@ export async function lockLocation(code, team, id, name, lat, lng, cell) {
 // Throws on failure. Callers must catch, or the UI will hang.
 export async function completeChallenge(code, team, challengeId, config = {}) {
   const land = landCellIds();
+
+  // Firebase throws on illegal keys during internal validation, in a way that
+  // leaves the awaited promise permanently pending. Catch it here instead, where
+  // it produces an error the UI can actually show.
+  const illegal = /[.#$/[\]]/;
+  const bad = [challengeId, ...land].find(k => illegal.test(String(k)));
+  if (bad) throw new Error(`"${bad}" can't be a database key — keys must not contain . # $ / [ ]`);
+
   let outcome = { ok: false, reason: "unknown", removed: 0 };
 
   const res = await deadline(runTransaction(teamRef(code, team), t => {
