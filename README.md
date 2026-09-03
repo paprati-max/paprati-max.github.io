@@ -120,6 +120,40 @@ shouting directions at you. Satellite imagery of Malta is a uniform beige at
 this zoom and tells you nothing. The map is also capped at zoom 15 so nobody can
 read street signs off it.
 
+
+## Versioning and caching (read this before you debug anything)
+
+Every page shows a build stamp in a footer. Grey line = all files agree. Red box
+= one of your JS files is stale and nothing you observe can be trusted until you
+fix it.
+
+Browsers cache ES modules hard, and a query string is part of the cached URL. If
+`grid.js?v=5` was ever fetched while grid.js was broken, fixing grid.js does NOT
+help — the browser keeps answering `?v=5` from its copy. That is why every
+import carries a version number.
+
+**When you change any .js file:**
+1. Bump `BUILD` in that file.
+2. Bump `BUILD` in `js/footer.js`.
+3. Find-and-replace `?v=5` with `?v=6` across the whole folder.
+4. Replace `>v5<` with `>v6<` in the three page headers.
+
+Skip step 3 and your users keep running old code with no warning.
+
+## Does the installed app update itself?
+
+Mostly, but not reliably enough to trust while you're still changing things.
+An installed PWA is the same site in its own window, using the same HTTP cache,
+plus a service worker that only checks for updates when it feels like it.
+
+`sw.js` here is set up to fight that: it deletes any cache storage it finds, and
+fetches all same-origin files with `cache: "no-store"` so your own code always
+comes from the network. Map tiles, fonts and the Firebase SDK are left cached,
+since those never change.
+
+If the app is ever stuck on an old version anyway:
+Settings → Apps → Chart Room → Storage → **Clear cache**, then reopen it.
+
 ## Known rough edges
 
 - Honour system on the challenges. The `hold` timers make faking them tedious

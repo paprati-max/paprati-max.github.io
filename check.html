@@ -75,7 +75,7 @@ $("#run").onclick = async () => {
 
   try {
     const cfgMod = await guard("Load your firebase-config.js", async () => {
-      const m = await import("./js/firebase-config.js");
+      const m = await import("./js/firebase-config.js?v=5");
       const c = m.firebaseConfig;
       if (!c) throw new Error("firebaseConfig is not exported");
       if (String(c.apiKey).includes("PASTE")) throw new Error("still has the placeholder values in it");
@@ -92,7 +92,7 @@ $("#run").onclick = async () => {
     const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js");
     const { getDatabase, ref, set, get, update, runTransaction, remove } =
       await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js");
-    const { firebaseConfig } = await import("./js/firebase-config.js");
+    const { firebaseConfig } = await import("./js/firebase-config.js?v=5");
 
     const db = await guard("Connect to your database", async () => {
       const app = initializeApp(firebaseConfig, "checker-" + Date.now());
@@ -145,6 +145,10 @@ $("#run").onclick = async () => {
 
   $("#run").disabled = false;
 };
+</script>
+<script type="module">
+import { renderFooter } from "./js/footer.js?v=5";
+renderFooter();
 </script>
 </body>
 </html>

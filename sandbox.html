@@ -50,8 +50,8 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module">
-import { buildGrid, landCellIds, cellIdFor, MALTA_BOUNDS } from "./js/grid.js";
-import { chooseEliminations } from "./js/elim.js";
+import { buildGrid, landCellIds, cellIdFor, MALTA_BOUNDS } from "./js/grid.js?v=5";
+import { chooseEliminations } from "./js/elim.js?v=5";
 
 const $ = s => document.querySelector(s);
 const CELLS = buildGrid();
@@ -135,6 +135,10 @@ $("#reset").onclick = () => {
 };
 
 paint();
+</script>
+<script type="module">
+import { renderFooter } from "./js/footer.js?v=5";
+renderFooter();
 </script>
 </body>
 </html>

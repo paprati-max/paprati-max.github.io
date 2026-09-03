@@ -15,9 +15,9 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   getDatabase, ref, get, set, update, onValue, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-import { firebaseConfig } from "./firebase-config.js";
-import { landCellIds, midpoint } from "./grid.js";
-import { chooseEliminations, DEFAULTS } from "./elim.js";
+import { firebaseConfig } from "./firebase-config.js?v=5";
+import { landCellIds, midpoint } from "./grid.js?v=5";
+import { chooseEliminations, DEFAULTS } from "./elim.js?v=5";
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
@@ -163,3 +163,7 @@ export async function resolveMeetingPoint(code) {
   await update(gameRef(code), { meetingPoint: point });
   return point;
 }
+
+// Bumped on every change. footer.js compares these across files and shouts
+// if one of them is stale — see the note there.
+export const BUILD = "v5 · 2026-09-03";

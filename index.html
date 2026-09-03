@@ -19,7 +19,7 @@
 
 <div class="bar">
   <span class="mark">Chart Room</span>
-  <span class="meta">Malta · main island only</span>
+  <span class="meta">Malta · main island only · <span style="opacity:.5">v5</span></span>
 </div>
 
 <div class="wrap">
@@ -70,7 +70,7 @@
 </div>
 
 <script type="module">
-import { newCode, createGame, gameExists } from "./js/db.js";
+import { newCode, createGame, gameExists } from "./js/db.js?v=5";
 
 const $ = s => document.querySelector(s);
 const codeIn = $("#code"), teamIn = $("#team"), nameIn = $("#name");
@@ -121,8 +121,22 @@ $("#create").onclick = async () => {
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    reg.update();                                   // check for a new worker every launch
+    reg.addEventListener("updatefound", () => {
+      const w = reg.installing;
+      w && w.addEventListener("statechange", () => {
+        // A new worker took over an already-loaded page: reload once so the
+        // page and its modules come from the same version.
+        if (w.state === "activated" && navigator.serviceWorker.controller) location.reload();
+      });
+    });
+  }).catch(() => {});
 }
+</script>
+<script type="module">
+import { renderFooter } from "./js/footer.js?v=5";
+renderFooter();
 </script>
 </body>
 </html>

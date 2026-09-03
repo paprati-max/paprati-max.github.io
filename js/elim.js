@@ -59,3 +59,7 @@ export function chooseEliminations({ land, eliminated = {}, safeCells = [], conf
     ? uniformPick(cuttable, take)
     : driftPick(cuttable, [...safe], take);
 }
+
+// Bumped on every change. footer.js compares these across files and shouts
+// if one of them is stale — see the note there.
+export const BUILD = "v5 · 2026-09-03";

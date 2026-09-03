@@ -124,3 +124,7 @@ export function midpoint(points) {
   const lat = Math.atan2(z, Math.sqrt(x * x + y * y));
   return { lat: (lat * 180) / Math.PI, lng: (lng * 180) / Math.PI };
 }
+
+// Bumped on every change. footer.js compares these across files and shouts
+// if one of them is stale — see the note there.
+export const BUILD = "v5 · 2026-09-03";

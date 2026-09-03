@@ -20,7 +20,7 @@
 
 <div class="bar">
   <span class="mark">Search area</span>
-  <span class="meta">Team <b id="teamLbl">–</b> · <b id="codeLbl">····</b></span>
+  <span class="meta">Team <b id="teamLbl">–</b> · <b id="codeLbl">····</b> · <span style="opacity:.5">v5</span></span>
 </div>
 
 <div class="budget">
@@ -54,8 +54,8 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script type="module">
-import { buildGrid, landCellIds, MALTA_BOUNDS } from "./js/grid.js";
-import { watchGame, setViewLeft, markFound, resolveMeetingPoint, DEFAULTS } from "./js/db.js";
+import { buildGrid, landCellIds, MALTA_BOUNDS } from "./js/grid.js?v=5";
+import { watchGame, setViewLeft, markFound, resolveMeetingPoint, DEFAULTS } from "./js/db.js?v=5";
 
 const $ = s => document.querySelector(s);
 const q = new URLSearchParams(location.search);
@@ -220,8 +220,22 @@ paintClock();
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.register("sw.js").then(reg => {
+    reg.update();                                   // check for a new worker every launch
+    reg.addEventListener("updatefound", () => {
+      const w = reg.installing;
+      w && w.addEventListener("statechange", () => {
+        // A new worker took over an already-loaded page: reload once so the
+        // page and its modules come from the same version.
+        if (w.state === "activated" && navigator.serviceWorker.controller) location.reload();
+      });
+    });
+  }).catch(() => {});
 }
+</script>
+<script type="module">
+import { renderFooter } from "./js/footer.js?v=5";
+renderFooter();
 </script>
 </body>
 </html>
