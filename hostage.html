@@ -166,8 +166,18 @@ async function bank(c, btn, msg) {
   if (!myCell) { msg.innerHTML = `<span class="bad">Share your location first.</span>`; return; }
   btn.disabled = true;
   msg.textContent = "Banking…";
-  const r = await completeChallenge(code, team, c.id, config);
-  msg.textContent = r.ok ? `Wiped ${r.removed} squares.` : "Already counted.";
+  try {
+    const r = await Promise.race([
+      completeChallenge(code, team, c.id, config),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("no reply from the database")), 12000))
+    ]);
+    msg.textContent = r.ok
+      ? `Wiped ${r.removed} squares.`
+      : "Nothing happened — already counted, or nobody on your team has locked a location yet.";
+  } catch (e) {
+    msg.innerHTML = `<span class="bad">Failed: ${e.message}</span>`;
+    btn.disabled = false;
+  }
 }
 
 // ---- live state -----------------------------------------------------------
